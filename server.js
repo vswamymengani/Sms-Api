@@ -11,7 +11,7 @@ const port = 3000;
 app.use(cors());
 app.use(bodyParser.json());
 app.use(session({
-  secret: 'Akash$1143', // Replace with your secret key
+  secret: 'Akash$143', // Replace with your secret key
   resave: false,
   saveUninitialized: true,
   cookie: { secure: false } // Set to true if using HTTPS
@@ -22,7 +22,7 @@ const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
   password: 'Akash$143',
-  database: 'SchoolManagement'
+  database: 'smsproject'
 });
 
 const saltRounds = 10; // Salt rounds for bcrypt hashing
@@ -99,151 +99,105 @@ app.post('/loginpage', (req, res) => {
   });
 });
 
+//Update Student Details
+app.post('/updateProfile', (req, res) => {
+  const { email, field, value } = req.body;
+  
+  let sql = `UPDATE StudentDetails SET ${field} = ? WHERE email = ?`;
+  let data = [value, email];
 
-
-
-
-
-
-//Api for Teacher register
-app.post("/teacherregister", (req, res) => {
-  const { fullname, className, section, dateofbirth, email, mobileNo, employeeid, experience, presentaddress, password, confirmpassword } = req.body;
-
-  if (!fullname || !className || !section || !dateofbirth || !email || !mobileNo || !employeeid || !experience || !presentaddress || !password || !confirmpassword) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-  if (password !== confirmpassword) {
-    return res.status(400).json({ message: "Passwords do not match" });
-  }
-
-  bcrypt.hash(password.toString(), saltRounds, (err, hashedPassword) => {
+  db.query(sql, data, (err, result) => {
     if (err) {
-      console.error("Error hashing password:", err);
-      return res.status(500).json({ message: "Server error" });
-    }
-
-   ' const sql = INSERT INTO TeacherDetails (fullname, className, section, dateofbirth, email, mobileNo, employeeid, experience, presentaddress, password, confirmpassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)';
-    const values = [fullname, className, section, dateofbirth, email, mobileNo, employeeid, experience, presentaddress, hashedPassword, hashedPassword];
-
-    db.query(sql, values, (err, result) => {
-      if (err) {
-        console.error("Error inserting user:", err);
-        return res.status(500).json({ message: "Something unexpected has occurred: " + err });
-      }
-      return res.json({ success: "Teacher added successfully" });
-    });
-  });
-});
-
-//Api for Teacher Login
-app.post('/teacherlogin', (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ message: "Email and password are required" });
-  }
-
-  const sql = 'SELECT * FROM TeacherDetails WHERE email = ?';
-
-  db.query(sql, [email], (err, data) => {
-    if (err) {
-      console.error("Error querying database:", err);
-      return res.status(500).json({ Error: "Login error in server" });
-    }
-    if (data.length > 0) {
-      bcrypt.compare(password.toString(), data[0].password, (err, response) => {
-        if (err) {
-          console.error("Error comparing passwords:", err);
-          return res.status(500).json({ Error: "Error comparing passwords" });
-        }
-        if (response) {
-          req.session.email = email; // Save email in session
-          res.json({ Status: "Success" });
-        } else {
-          return res.status(400).json({ Error: "Password not matched" });
-        }
-      });
+      res.status(500).json({ success: false, message: 'Failed to update profile information' });
     } else {
-      return res.status(400).json({ Error: "Email not exists" });
+      res.json({ success: true, message: 'Profile information updated successfully' });
     }
   });
 });
 
+//Api for notifications about homework
+app.get('/studentHomework',(req,res) =>{
+  const sql = 'Select * FROM TeacherHomework';
+
+  db.query(sql,(err,results) =>{
+    if(err){
+      console.error("error while feaching the homework",err);
+      return res.status(500).json({message:"server Error"});
+    }
+    res.json(results);
+  });
+});
 
 
-//Admin login code 
-app.post('/adminlogin', (req, res) => {
-  const { email, password } = req.body;
+//fee details fetch api
+app.get('/feedetails',(req,res) =>{
+  const email = req.query.email;
 
-  if (!email || !password) {
-    return res.status(400).json({ message: "Email and password are required" });
-  }
+  const sql = "SELECT * FROM FeeDetails WHERE email =?";
 
-  const sql = 'SELECT * FROM Admin WHERE email = ?';
-
-  db.query(sql, [email], (err, data) => {
-    if (err) {
+  db.query(sql,[email],(err,data) =>{
+    if(err){
       console.error("Error querying database:", err);
-      return res.status(500).json({ message: "Server error" });
+      return res.json({ Error: "fee deatils fetch error" });
     }
-
-    if (data.length > 0) {
-      if (password === data[0].password) {
-        req.session.email = email;
-        res.json({ status: "Success" });
-      } else {
-        res.status(400).json({ message: "Password not matched" });
-      }
-    } else {
-      res.status(400).json({ message: "Email not exists" });
+    if(data.length > 0){
+      const userFee= data[0];
+      return res.json(userFee);
+    }else{
+      return res.json({Error:"fee details not found"});
     }
   });
 });
 
 
 
+// GET request to fetch student details
+app.get('/students', (req, res) => {
+  const sql = 'SELECT * FROM StudentDetails';
 
+  db.query(sql, (err, results) => {
+    if (err) {
+      console.error("Error fetching student details:", err);
+      return res.status(500).json({ message: "Something unexpected has occurred: " + err });
+    }
+    res.json(results);
+  });
+});
 
-//Admin login code 
-app.post('/leave', (req, res) => {
-  const { employeeid, purpose, startdate, enddate, description } = req.body;
+// Logout endpoint to destroy the session
+app.post('/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ message: "Logout error" });
+    }
+    res.json({ message: "Logout successful" });
+  });
+});
 
-  const sql = 'INSERT INTO TeacherLeave (employeeid, purpose, startdate, enddate, description) VALUES (?, ?, ?, ?, ?)';
-  const values = [employeeid, purpose, startdate, enddate, description];
+app.post('/feenews', (req, res) => {
+  const { totalFees, paidAmount, remainingAmount, dueDate, admissionId } = req.body;
+
+  const sql = 'INSERT INTO FeeDetails (totalFees, paidAmount, remainingAmount, dueDate, admissionId) VALUES (?, ?, ?, ?, ?)';
+  const values = [totalFees, paidAmount, remainingAmount, dueDate, admissionId];
 
   db.query(sql, values, (err, result) => {
     if (err) {
-      console.error("Error inserting in teacher leave:", err);
+      console.error("Error inserting fee news:", err);
       return res.status(500).json({ message: "Something unexpected has occurred: " + err });
     }
-    res.json({ success: "Leave Letter sent successfully" });
+    res.json({ success: "Fee news added successfully" });
   });
 });
 
-//teacher homework api
 
-app.post('/teacherHomework', (req,res) =>{
 
-  const {classname,section,subject,typeofHomework,title,duration,homework} =req.body;
 
-  const sql= 'INSERT INTO TeacherHomework (classname,section,subject,typeofHomework,title,duration,homework) VALUES (?,?,?,?,?,?,?)';
-  const values = [classname,section,subject,typeofHomework,title,duration,homework];
-
-  db.query(sql,values,(err,result) =>{
-    if(err){
-      console.error("Error inserting in teacher homework screen" ,err);
-      return res.status(500).json({message:"something unexpected has happed:"+ err});
-    }
-    res.json({success:"homework send successfully"});
-  });
-});
-
+// api for student leaves 
 app.post('/studentLeave', (req, res) => {
-  const { fullname, className, section, recipient, leavePurpose, startDate, endDate, description } = req.body;
+  const { fullname, className, section,email, recipient, leavePurpose, startDate, endDate, description } = req.body;
 
-  const sql = 'INSERT INTO StudentLeave (fullname, className, section, recipient, leavePurpose, startDate, endDate, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-  const values = [fullname, className, section, recipient, leavePurpose, startDate, endDate, description];
+  const sql = 'INSERT INTO StudentLeave (fullname, className, section,email, recipient, leavePurpose, startDate, endDate, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  const values = [fullname, className, section,email, recipient, leavePurpose, startDate, endDate, description];
 
   db.query(sql, values, (err, data) => {
     if (err) {
@@ -269,20 +223,49 @@ app.post('/studentComplaint', (req, res) => {
   });
 });
 
-app.post('/TeacherComplaints', (req, res) => {
-  const { employeeid, typeOfComplaint, reason, explanation } = req.body;
 
-  const sql = 'INSERT INTO TeacherComplaints (employeeid, typeOfComplaint, reason, explanation) VALUES  (?,?,?,?)';
-  const values = [employeeid, typeOfComplaint, reason, explanation];
 
-  db.query(sql, values, (err, result) => {
-    if (err) {
-      console.error("Error inserting in teacher complaint", err);
-      return res.status(500).json({ message: "Something unexpected has happend:" + err });
+//Api for Student Details
+app.get('/studentDetails',(req,res)=>{
+    const sql = 'SELECT * FROM StudentDetails';
+
+    db.query(sql,(err,result)=>{
+      if(err){
+        console.error("error while feaching student details",err);
+        return res.status(500).json({message:"Something unexpected has happend" + err});
+      }
+      res.json(result);
+    });
+});
+
+//api for student leaves showing
+app.get('/studentLeaves', (req,res) =>{
+  
+  const sql = "SELECT * FROM StudentLeave  WHERE approval IS NULL";
+
+  db.query(sql,(err,result) =>{
+    if(err){
+      console.error("error while fetching student leaves" ,err);
+      return res.status(500).json({message:"Something unexpected had happend" + err});
     }
+    res.json(result);
   });
 });
 
+// Update approval status of a leave request
+app.put('/studentLeaves/:id', (req, res) => {
+  const { id } = req.params;
+  const { approval } = req.body;
+  const sql = 'UPDATE StudentLeave SET approval = ? WHERE id = ?';
+  db.query(sql, [approval, id], (err, results) => {
+      if (err) {
+          console.error('Error updating leave status:', err);
+          res.status(500).json({ error: 'Failed to update leave status' });
+          return;
+      }
+      res.json({ message: 'Leave status updated' });
+  });
+});
 
 
 // Api for profile details
@@ -323,50 +306,22 @@ app.get('/leaveProfile', (req, res) => {
   });
 });
 
-app.get('/teacherprofile', (req, res) => {
-  const email = req.query.email; // Assume email is passed as a query parameter
-  const sql = 'SELECT * FROM TeacherDetails WHERE email = ?';
-  db.query(sql, [email], (err, data) => {
-    if (err) {
-      console.error("Error querying database:", err);
-      return res.json({ Error: "Profile fetch error" });
-    }
-    if (data.length > 0) {
-      const userProfile = data[0];
-      delete userProfile.password; // Remove sensitive data
-      delete userProfile.confirmpassword;
-      return res.json(userProfile);
-    } else {
-      return res.json({ Error: "Profile not found" });
-    }
-  });
-});
-
-app.get('/students', (req, res) => {
+//student details with the help of classname and section
+app.get('/studentResults', (req, res) => {
   const { className, section } = req.query;
 
-  let sql = 'SELECT * FROM StudentDetails';
-  const values = [];
+  const sql = "SELECT * FROM StudentDetails WHERE className = ? AND section = ?";
+  const values = [className, section];
 
-  if (className && section) {
-    sql += ' WHERE className = ? AND section = ?';
-    values.push(className, section);
-  } else if (className) {
-    sql += ' WHERE className = ?';
-    values.push(className);
-  } else if (section) {
-    sql += ' WHERE section = ?';
-    values.push(section);
-  }
-
-  db.query(sql, values, (err, results) => {
+  db.query(sql, values, (err, data) => {
     if (err) {
       console.error("Error fetching student details:", err);
-      return res.status(500).json({ message: "Something unexpected has occurred: " + err });
+      return res.status(500).json({ message: "Error fetching student details" });
     }
-    res.json(results);
+    res.status(200).json(data);
   });
 });
+
 
 // API for submitting attendance
 app.post('/attendance', (req, res) => {
@@ -386,30 +341,6 @@ app.post('/attendance', (req, res) => {
       return res.status(500).json({ message: "Something unexpected has occurred: " + err });
     }
     res.json({ success: "Attendance submitted successfully" });
-  });
-});
-
-// New API for updating teacher details
-app.post('/teacherupdate', (req, res) => {
-  const { field, value, email } = req.body;
-
-  if (!field || !value || !email) {
-    return res.status(400).json({ message: "Invalid input" });
-  }
-
-  // Construct the SQL query to update the specified field
-  'const sql = UPDATE TeacherDetails SET ${field} = ? WHERE email = ?';
-
-  // Execute the query with the provided values
-  db.query(sql, [value, email], (err, result) => {
-    if (err) {
-      console.error("Error updating teacher details:", err);
-      return res.status(500).json({ message: "Something unexpected has occurred: " + err });
-    }
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Teacher not found" });
-    }
-    res.json({ success: "Teacher details updated successfully" });
   });
 });
 
@@ -461,34 +392,8 @@ app.get('/reciveAnnouncements' ,(req,res) =>{
 });
 
 
-//Api for teacher ComplainsScreen on admin screen
-app.get('/teacherComplaints',(req,res) =>{
-  const sql = 'SELECT * FROM TeacherComplaints WHERE is_resolved = FALSE';
 
-  db.query(sql,(err,results) =>{
-    if(err){
-      console.error("Error feaching teacher complaints:", err);
-      return res.status(500).json({message:"Server Error"});
-    }
-    res.json(results);
-  });
-});
-
-
-
-app.get('/teacherDetails',(req,res) =>{
-  const sql = 'SELECT * FROM TeacherDetails';
-
-  db.query(sql,(err,results) =>{
-    if(err){
-      console.error("Error while feching teacher details:", err);
-      return res.status(500).json({message:"server error"});
-    }
-    res.json(results);
-  });
-});
-
-app.get('/studentdetails',(req,res) =>{
+app.get('/studentCount',(req,res) =>{
   const sql = "SELECT COUNT(*) AS Student_Count FROM StudentDetails";
 
   db.query(sql,(err,result) =>{
@@ -523,8 +428,130 @@ app.get('/teacherCount', (req, res) => {
   });
 });
 
+//Admin announcement
+app.post('/announcements' ,(req,res) =>{
+  const {subject, explanation ,reciver} = req.body;
+  const sql = 'INSERT INTO Announcement (subject, explanation, reciver) VALUES (?,?,?)';
+  const values = [subject,explanation,reciver];
+
+  db.query(sql,values,(err,result) =>{
+    if(err){
+      console.error("Error inserting in announcement table",err);
+      return res.status(500).json({message:"Something unexpected has happend" + err});
+    }
+  });
+});
+
+// API Endpoint to save timetable entries
+app.post('/timetable', (req, res) => {
+  const { timetableEntries } = req.body;
+
+  if (!timetableEntries || timetableEntries.length === 0) {
+    return res.status(400).json({ error: 'No timetable entries provided' });
+  }
+
+  const sql = 'INSERT INTO TimeTable (className, section, day, period, subject, employeeId) VALUES ?';
+  const values = timetableEntries.map((entry) => [
+    entry.className,
+    entry.section,
+    entry.day,
+    entry.period,
+    entry.subject,
+    entry.employeeId,
+  ]);
+
+  // Execute the INSERT query
+  db.query(sql, [values], (err, result) => {
+    if (err) {
+      console.error('Error saving timetable entries:', err);
+      return res.status(500).json({ error: 'Failed to save timetable entries' });
+    }
+    console.log('Timetable entries saved successfully');
+    res.status(200).json({ message: 'Timetable entries saved successfully' });
+  });
+});
+
+// API for fetching student timetable
+app.get('/studentTimetable', (req, res) => {
+  const { className, section } = req.query; // Assuming className and section are passed as query parameters
+
+  if (!className || !section) {
+    return res.status(400).json({ message: "Class name and section are required" });
+  }
+
+  const sql = 'SELECT * FROM TimeTable WHERE className = ? AND section = ?';
+  const values = [className, section];
+
+  db.query(sql, values, (err, results) => {
+    if (err) {
+      console.error("Error fetching student timetable:", err);
+      return res.status(500).json({ message: "Server error" });
+    }
+    res.json(results);
+  });
+});
+
+
+
+// API endpoint to fetch homework data
+app.get('/homework/:classname/:section', (req, res) => {
+  const { classname, section } = req.params;
+  const query = `
+    SELECT id, subject, typeOfHomework, title, duration, homework
+    FROM TeacherHomeWork
+    WHERE classname = ? AND section = ?
+  `;
+  
+  db.query(query, [classname, section], (err, results) => {
+    if (err) {
+      console.error('Error fetching homework data:', err);
+      res.status(500).json({ error: 'Internal server error' });
+      return;
+    }
+    
+    res.json(results);
+  });
+});
+
+//api for fetching student leaves 
+app.get('/leaves', (req, res) => {
+  const  email  = req.query.email;
+
+  const sql = "SELECT * FROM StudentLeave WHERE email = ?";
+
+  db.query(sql, [email], (err, results) => {
+      if (err) {
+          console.error("Error while getting the data", err);
+          return res.status(500).json({ message: "Error while fetching data", error: err });
+      }
+      res.json(results);
+  });
+});
+
+app.post('/results', (req, res) => {
+  const marksData = req.body; // Assuming marksData is an array of objects
+
+  if (!marksData || !Array.isArray(marksData)) {
+      return res.status(400).json({ message: "Invalid marks data provided" });
+  }
+
+  // Assuming marksData is an array of objects with keys matching column names
+  const sql = "INSERT INTO ExamResults (className, section, examType, subject, rollno, fullname, marks, email) VALUES ?";
+  const values = marksData.map(data => [data.className, data.section, data.examType, data.subject, data.rollno, data.fullname, data.marks, data.email]);
+
+  db.query(sql, [values], (err, results) => {
+      if (err) {
+          console.error("Error inserting marks:", err);
+          return res.status(500).json({ message: "Failed to insert marks into database" });
+      }
+      console.log("Marks inserted successfully");
+      res.status(200).json({ message: "Marks inserted successfully" });
+  });
+});
+
+
 
 
 app.listen(port, () => {
-  console.log('Server running on port ${port}');
+  console.log(`Server running on port ${port}`);
 });
