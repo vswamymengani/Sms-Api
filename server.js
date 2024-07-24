@@ -227,6 +227,119 @@ app.get('/teacherComplaints',(req,res) =>{
     });
   });
 
+
+
+// Endpoint to add questions
+app.post('/api/questions', (req, res) => {
+  const { questions } = req.body;
+
+  // Validate input
+  if (!Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).send('Invalid input data');
+  }
+
+  // Prepare SQL query and values
+  const sql = 'INSERT INTO questions (question, options, correctAnswer) VALUES ?';
+  const values = questions.map(q => [q.question, JSON.stringify(q.options), q.correctAnswer]);
+
+  db.query(sql, [values], (err, result) => {
+      if (err) {
+          console.error('Database query failed:', err);
+          return res.status(500).send('Failed to add questions');
+      }
+      res.status(201).send('Questions added successfully');
+  });
+});
+
+
+
+///student online exam screen api
+app.get('/api/questions', (req, res) => {
+  const sql = 'SELECT * FROM questions'; // Adjust the query based on your schema
+
+  db.query(sql, (err, results) => {
+    if (err) {
+      console.error(err);
+      res.status(500).send('Failed to fetch questions');
+      return;
+    }
+
+    // Ensure the options are parsed as arrays
+    const questions = results.map(row => ({
+      id: row.id,
+      question: row.question,
+      options: JSON.parse(row.options), // Ensure options are parsed from JSON
+      correctAnswer: row.correctAnswer
+    }));
+
+    res.json(questions);
+  });
+});
+app.post('/api/submit', (req, res) => {
+  const { answers } = req.body;
+
+  // Validate answers format
+  if (!answers || typeof answers !== 'object') {
+    return res.status(400).send('Invalid answers format');
+  }
+
+  // Fetch correct answers from the database
+  db.query('SELECT id, correctAnswer FROM questions', (err, results) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Failed to get correct answers');
+    }
+
+    let score = 0;
+    let totalQuestions = results.length;
+    let incorrectAnswers = 0;
+
+    // Create a map of correct answers for easy comparison
+    const correctAnswersMap = results.reduce((acc, question) => {
+      acc[question.id] = question.correctAnswer;
+      return acc;
+    }, {});
+
+    // Compare submitted answers with correct answers
+    for (const [questionId, answer] of Object.entries(answers)) {
+      if (correctAnswersMap[questionId] === answer) {
+        score++;
+      } else {
+        incorrectAnswers++;
+      }
+    }
+
+    // Return the result with both correct and incorrect counts
+    res.json({ score, totalQuestions, incorrectAnswers });
+  });
+});
+
+
+// API endpoint to add a book
+app.post('/addBook', (req, res) => {
+  const { bookTitle, author, isbn, description, coverPhoto } = req.body;
+  const query = 'INSERT INTO books (bookTitle, author, isbn, description, coverPhoto) VALUES (?, ?, ?, ?, ?)';
+  db.query(query, [bookTitle, author, isbn, description, coverPhoto], (err, result) => {
+    if (err) {
+      res.status(500).send('Server error');
+    } else {
+      res.status(200).send('Book added successfully');
+    }
+  });
+});
+
+
+// API endpoint to get all books
+app.get('/getBooks', (req, res) => {
+  const query = 'SELECT * FROM books';
+  db.query(query, (err, results) => {
+    if (err) {
+      res.status(500).send('Server error');
+    } else {
+      res.status(200).json(results);
+    }
+  });
+});
   
 
 // Endpoint to resolve Teacher  complaint
