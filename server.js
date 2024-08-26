@@ -10,13 +10,18 @@ const session = require('express-session');
 const app = express();
 const port = 3000;
 
-// Set CORS headers
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://18.60.190.183:3000');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  next();
-});
+// // Set CORS headers
+// app.use((req, res, next) => {
+//   res.setHeader('Access-Control-Allow-Origin', 'http://18.60.190.183:3000');
+//   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+//   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+//   next();
+// });
+
+app.use(cors({
+  origin: 'http://18.60.190.183:3000',
+  methods: ['GET', 'POST','PUT', 'DELETE']
+}));
 
 app.use(cors());
 app.use(bodyParser.json());
