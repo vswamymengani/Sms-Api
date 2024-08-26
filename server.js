@@ -1324,16 +1324,16 @@ app.get('/getBooks', (req, res) => {
 
 // Endpoint to add questions
 app.post('/questions', (req, res) => {
-  const { className, section, questions } = req.body;
+  const { className, section, questions, subject,employeeid } = req.body;
 
   // Validate input
-  if (!className || !section || !Array.isArray(questions) || questions.length === 0) {
+  if (!className || !section ||!subject ||!employeeid || !Array.isArray(questions) || questions.length === 0) {
     return res.status(400).send('Invalid input data');
   }
 
   // Prepare SQL query and values
-  const sql = 'INSERT INTO Questions (className, section, question, options, correctAnswer) VALUES ?';
-  const values = questions.map(q => [className, section, q.question, JSON.stringify(q.options), q.correctAnswer]);
+  const sql = 'INSERT INTO Questions (className, section,subject,employeeid, question, options, correctAnswer) VALUES ?';
+  const values = questions.map(q => [className, section,subject,employeeid, q.question, JSON.stringify(q.options), q.correctAnswer]);
 
   db.query(sql, [values], (err, result) => {
     if (err) {
@@ -1368,6 +1368,53 @@ app.get('/questions', (req, res) => {
   });
 });
 
+app.get('/studentQuestions', (req, res) => {
+  const { className, section, subject } = req.query;
+
+  const query = `SELECT * FROM Questions WHERE className = ? AND section = ? AND subject = ?`;
+  db.query(query, [className, section, subject], (err, rows) => {
+      if (err) {
+          console.error(err.message);
+          return res.status(500).json({ error: 'Failed to fetch questions' });
+      }
+
+      if (rows.length === 0) {
+          return res.status(404).json({ message: 'No questions found' });
+      }
+
+      // Parse options JSON for each question
+      rows.forEach(row => {
+          row.options = JSON.parse(row.options);
+      });
+
+      res.json(rows);
+  });
+});
+
+app.get('/subjects', (req, res) => {
+  const { className, section } = req.query;
+
+  if (!className || !section) {
+      return res.status(400).json({ error: 'className and section are required' });
+  }
+
+  const query = `SELECT DISTINCT subject FROM Questions WHERE className = ? AND section = ?`;
+  db.query(query, [className, section], (err, results) => {
+      if (err) {
+          console.error('Error executing query:', err.message);
+          return res.status(500).json({ error: 'Failed to fetch subjects' });
+      }
+
+      console.log('Query results:', results); // Log results for debugging
+
+      if (results.length === 0) {
+          return res.status(404).json({ message: 'No subjects found' });
+      }
+
+      const subjects = results.map(row => row.subject);
+      res.json(subjects);
+  });
+});
 
 
 app.post('/submit', (req, res) => {
@@ -1580,7 +1627,191 @@ app.get('/events/media', (req, res) => {
   });
 });
 
+// API to fetch student attendance based on roll number, class, and section
+app.get('/studentAttendance', (req, res) => {
+  const { rollNo, className, section } = req.query;
+  if (!rollNo || !className || !section) {
+    return res.status(400).json({ error: 'Roll number, class name, and section are required' });
+  }
 
+  const query = 'SELECT date, status FROM Attendance WHERE rollNo = ? AND className = ? AND section = ?';
+  db.query(query, [rollNo, className, section], (err, results) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database query failed' });
+    }
+
+    res.json(results);
+  });
+});
+
+//api for student details using admission number
+
+app.get('/getStudentDetails', (req, res) => {
+    const { admissionid } = req.query;
+
+    // Check if admissionid is provided
+    if (!admissionid) {
+        return res.status(400).send('Admission ID is required');
+    }
+
+    const query = `SELECT fullname, className, section FROM StudentDetails WHERE admissionid = ?`;
+    db.query(query, [admissionid], (err, result) => {
+        if (err) {
+            console.error('Error fetching student details', err);
+            return res.status(500).send('Error fetching student details');
+        }
+
+        // Check if a student was found
+        if (result.length === 0) {
+            return res.status(404).send('Student not found');
+        }
+
+        res.send(result[0]);
+    });
+});
+
+// API to get teacher details by email
+app.get('/employee', (req, res) => {
+  const { email } = req.query;
+  const query = 'SELECT employeeid FROM TeacherDetails WHERE email = ?';
+
+  db.query(query, [email], (error, results) => {
+    if (error) {
+      console.error('Error fetching employee ID:', error);
+      res.status(500).send('Error fetching employee ID');
+      return;
+    }
+
+    if (results.length === 0) {
+      res.status(404).send('Employee not found');
+      return;
+    }
+
+    res.json(results[0]);
+  });
+});
+
+
+
+//api for alocating the book
+app.post('/allocateBook', (req, res) => {
+  const { bookId, admissionid, fullname, className, section, allocationDate } = req.body;
+  const query = `INSERT INTO LibraryManagement (bookId, admissionid, fullname, className, section, allocationDate) VALUES (${bookId}, ${admissionid}, '${fullname}', '${className}', '${section}', '${allocationDate}')`;
+  db.query(query, (err, result) => {
+      if (err) {
+          console.error('Error allocating book', err);
+          return res.status(500).send('Error allocating book');
+      }
+
+      const updateQuery = `UPDATE Books SET status = 'Allocated' WHERE id = ${bookId}`;
+      db.query(updateQuery, (err, result) => {
+          if (err) {
+              console.error('Error updating book status', err);
+              return res.status(500).send('Error updating book status');
+          }
+          res.send('Book allocated successfully');
+      });
+  });
+});
+
+
+//api for library details
+app.get('/getLibraryManagementDetails', (req, res) => {
+  const { bookId } = req.query;
+  
+  if (!bookId) {
+      return res.status(400).send('bookId is required');
+  }
+  
+  const query = `
+      SELECT bookId, admissionid, fullname, className, section, allocationDate
+      FROM LibraryManagement
+      WHERE bookId = ?
+      ORDER BY id DESC
+      LIMIT 1
+  `;
+  
+  db.query(query, [bookId], (err, results) => {
+      if (err) {
+          console.error('Error fetching library management details', err);
+          return res.status(500).send('Error fetching library management details');
+      }
+      
+      if (results.length > 0) {
+          // Assuming results[0] is a flat object
+          res.json(results[0]);
+      } else {
+          res.status(404).send('No records found for the given bookId');
+      }
+  });
+});
+
+//api for return  books
+app.post('/returnBook', (req, res) => {
+  const { bookId, admissionid, returnDate, remarks } = req.body;
+  
+  if (!bookId || !admissionid || !returnDate) {
+      return res.status(400).send('bookId, admissionid, and returnDate are required');
+  }
+
+  const updateQuery = `
+      UPDATE LibraryManagement 
+      SET returnDate = ?, remarks = ?
+      WHERE bookId = ? AND admissionid = ?
+  `;
+  
+  db.query(updateQuery, [returnDate, remarks, bookId, admissionid], (err, result) => {
+      if (err) {
+          console.error('Error returning book', err);
+          return res.status(500).send('Error returning book');
+      }
+
+      const updateBookQuery = `
+          UPDATE Books 
+          SET status = 'Available' 
+          WHERE id = ?
+      `;
+      
+      db.query(updateBookQuery, [bookId], (err, result) => {
+          if (err) {
+              console.error('Error updating book status', err);
+              return res.status(500).send('Error updating book status');
+          }
+          res.send('Book returned successfully');
+      });
+  });
+});
+
+// Get special dates
+app.get('/getSpecialDates', (req, res) => {
+  const sql = 'SELECT * FROM Special_Dates';
+  db.query(sql, (err, results) => {
+      if (err) {
+          res.status(500).send({ error: 'Failed to fetch special dates' });
+      } else {
+          res.json(results);
+      }
+  });
+});
+
+
+// Add special date
+app.post('/addSpecialDate', (req, res) => {
+  const { date, description } = req.body;
+
+  if (!date || !description) {
+      return res.status(400).send({ error: 'Date and description are required' });
+  }
+
+  const sql = 'INSERT INTO Special_Dates (date, description) VALUES (?, ?)';
+  db.query(sql, [date, description], (err, results) => {
+      if (err) {
+          res.status(500).send({ error: 'Failed to add special date' });
+      } else {
+          res.json({ message: 'Special date added successfully' });
+      }
+  });
+});
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
