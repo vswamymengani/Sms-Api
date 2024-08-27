@@ -1826,6 +1826,47 @@ app.post('/addSpecialDate', (req, res) => {
   });
 });
 
+// Fetch Teacher Data
+app.get('/teacherModify/:employeeid', (req, res) => {
+  const { employeeid } = req.params;
+  const query = 'SELECT fullname, subject, qualification, experience, dateofbirth, mobileNo, presentAddress, email FROM TeacherDetails WHERE employeeid = ?';
+
+  db.query(query, [employeeid], (err, results) => {
+    if (err) {
+      console.error('Error fetching data:', err);
+      return res.status(500).json({ error: 'Failed to fetch data' });
+    }
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+    res.json(results[0]);
+  });
+});
+
+// Update Teacher Data
+app.put('/teacherModify/:employeeid', (req, res) => {
+  const { employeeid } = req.params;
+  const { fullname, subject, qualification, experience, dateofbirth, mobileNo, presentAddress, email } = req.body;
+
+  const query = `
+    UPDATE TeacherDetails
+    SET fullname = ?, subject = ?, qualification = ?, experience = ?, dateofbirth = ?, mobileNo = ?, presentAddress = ?, email = ?
+    WHERE employeeid = ?
+  `;
+
+  db.query(query, [fullname, subject, qualification, experience, dateofbirth, mobileNo, presentAddress, email, employeeid], (err, results) => {
+    if (err) {
+      console.error('Error updating data:', err);
+      return res.status(500).json({ error: 'Failed to update data' });
+    }
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+    res.json({ success: true });
+  });
+});
+
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
