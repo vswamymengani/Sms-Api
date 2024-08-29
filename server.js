@@ -10,19 +10,6 @@ const session = require('express-session');
 const app = express();
 const port = 3000;
 
-// Set CORS headers
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-  // res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  next();
-});
-
-// app.use(cors({
-//   origin: 'http://18.60.190.183:3000',
-//   methods: ['GET', 'POST','PUT', 'DELETE']
-// }));
-
 app.use(cors());
 app.use(bodyParser.json());
 app.use(session({
@@ -246,30 +233,6 @@ app.post('/adminTeacherRegister', (req, res) => {
     });
 });
 
-//api  entering the timetable data
-app.post('/timetable', (req, res) => {
-  const timetableEntries = req.body.timetableEntries;
-  const sql = 'INSERT INTO TimeTable (className, section, day, period, subject, employeeid, teacherName, link) VALUES ?';
-  
-  const values = timetableEntries.map(entry => [
-    entry.className,
-    entry.section,
-    entry.day,
-    entry.period,
-    entry.subject,
-    entry.employeeid,
-    entry.teacherName,
-    entry.link,
-  ]);
-
-  db.query(sql, [values], (err, result) => {
-    if (err) {
-      res.status(500).send(err);
-    } else {
-      res.json({ message: 'Timetable entries added successfully' });
-    }
-  });
-});
 
 //api for teacher name for timetable
 app.get('/teacherName', (req, res) => {
@@ -1863,6 +1826,172 @@ app.put('/teacherModify/:employeeid', (req, res) => {
       return res.status(404).json({ error: 'Teacher not found' });
     }
     res.json({ success: true });
+  });
+});
+
+// GET /teacherDetails/:employeeId
+app.get('/teacherInfo/:employeeid', (req, res) => {
+  const { employeeid } = req.params;
+  const sql = 'SELECT * FROM TeacherDetails WHERE employeeid = ?';
+  db.query(sql, [employeeid], (err, result) => {
+      if (err) {
+          res.status(500).send(err);
+      } else if (result.length > 0) {
+          res.json(result[0]);
+      } else {
+          res.status(404).json({ message: 'Teacher not found' });
+      }
+  });
+});
+
+// POST /addClass
+app.post('/addClass', (req, res) => {
+  const { className, section, employeeid } = req.body;
+  const checkClassSql = 'SELECT * FROM ClassDetails WHERE className = ? AND section = ?';
+  db.query(checkClassSql, [className, section], (err, result) => {
+      if (err) {
+          return res.status(500).send(err);
+      }
+      if (result.length > 0) {
+          return res.status(400).json({ message: 'Class with this name and section already exists' });
+      }
+      const addClassSql = 'INSERT INTO ClassDetails (className, section, employeeid) VALUES (?, ?, ?)';
+      db.query(addClassSql, [className, section, employeeid], (err) => {
+          if (err) {
+              return res.status(500).send(err);
+          }
+          res.json({ success: true });
+      });
+  });
+});
+
+// POST /modifyClass
+app.post('/modifyClass', (req, res) => {
+  const { className, section, newEmployeeid } = req.body;
+  console.log('Modifying class with:', { className, section, newEmployeeid }); // Debugging line
+
+  const sql = 'UPDATE ClassDetails SET employeeid = ? WHERE className = ? AND section = ?';
+  db.query(sql, [newEmployeeid, className, section], (err, result) => {
+    if (err) {
+      console.error('Error updating class:', err);
+      return res.status(500).send(err);
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Class not found' });
+    }
+    res.json({ success: true });
+  });
+});
+
+
+// Add Timetable Entry with new columns
+app.post('/timetable', async (req, res) => {
+  const { timetableEntries } = req.body;
+  
+  try {
+    const promises = timetableEntries.map(entry => {
+      return db.query(
+        'INSERT INTO TimeTable (className, section, day, periodPart, startTime, endTime, subject, employeeid, teacherName, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [entry.className, entry.section, entry.day, entry.periodPart, entry.startTime, entry.endTime, entry.subject, entry.employeeid, entry.teacherName, entry.link]
+      );
+    });
+
+    await Promise.all(promises);
+    res.json({ message: 'Timetable entries added successfully' });
+  } catch (error) {
+    console.error('Error adding timetable entries:', error);
+    res.status(500).json({ error: 'Unable to add timetable entries' });
+  }
+});
+
+// Check for Duplicates
+app.post('/checkDuplicates', async (req, res) => {
+  const { className, section, day, periodPart, startTime, endTime } = req.body;
+
+  try {
+    const query = `
+      SELECT COUNT(*) AS count
+      FROM TimeTable
+      WHERE className = ? AND section = ? AND day = ? AND periodPart = ? AND startTime = ? AND endTime = ?
+    `;
+
+    const [rows] = await pool.query(query, [
+      className, 
+      section, 
+      day, 
+      periodPart, 
+      startTime, 
+      endTime
+    ]);
+
+    if (rows[0].count > 0) {
+      res.json({ duplicate: true });
+    } else {
+      res.json({ duplicate: false });
+    }
+  } catch (error) {
+    console.error('Error checking duplicates:', error);
+    res.status(500).json({ error: 'Unable to check for duplicates' });
+  }
+});
+
+
+// Endpoint to get class details
+app.get('/classDetails', (req, res) => {
+  const query = `
+    SELECT className, GROUP_CONCAT(DISTINCT section ORDER BY section ASC) AS sections
+    FROM ClassDetails
+    GROUP BY className
+  `;
+  
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Database query error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    
+    // Transform results into a more usable format
+    const transformedResults = results.map(row => ({
+      className: row.className,
+      sections: row.sections.split(',')
+    }));
+
+    res.json(transformedResults);
+  });
+});
+
+// GET /classTeacher
+app.get('/classTeacher', (req, res) => {
+  const { employeeid } = req.query;
+
+  const sql = 'SELECT className, section FROM ClassDetails WHERE employeeid = ?';
+  db.query(sql, [employeeid], (err, result) => {
+    if (err) {
+      console.error('Error fetching class details:', err);
+      res.status(500).json({ message: 'Server error' });
+    } else if (result.length > 0) {
+      res.json(result);
+    } else {
+      res.status(404).json({ message: 'Class details not found' });
+    }
+  });
+});
+
+
+// GET /studentTeacherComplaint
+app.get('/studentTeacherComplaint', (req, res) => {
+  const { className, section, recipient } = req.query;
+
+  const sql = 'SELECT * FROM StudentComplaint WHERE className = ? AND section = ? AND recipient = ?';
+  db.query(sql, [className, section, recipient], (err, result) => {
+    if (err) {
+      console.error('Error fetching student complaints:', err);
+      res.status(500).json({ message: 'Server error' });
+    } else if (result.length > 0) {
+      res.json(result);
+    } else {
+      res.status(404).json({ message: 'No complaints found' });
+    }
   });
 });
 
