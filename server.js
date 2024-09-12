@@ -7,6 +7,11 @@ const cors = require("cors");
 const bcrypt = require("bcrypt");
 const session = require('express-session');
 
+const AWS = require('aws-sdk');
+const { v4: uuidv4 } = require('uuid'); // Import uuid
+
+
+
 const app = express();
 const port = 3000;
 
@@ -35,6 +40,351 @@ db.connect((err) => {
   }
   console.log('Connected to MySQL database');
 });
+
+// AWS S3 configuration
+AWS.config.update({
+  accessKeyId: 'AKIA6GBMGVHDE2Z4I57D',
+  secretAccessKey: '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',
+  region: 'ap-south-2',
+});
+
+const s3 = new AWS.S3();
+
+
+
+// Multer storage configuration
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+// Middleware to parse JSON and URL-encoded data
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Function to upload files to AWS S3 with UUID
+const uploadToS3 = (buffer, fileName, folder) => {
+  const uniqueFileName = `${uuidv4()}-${fileName}`; // Add UUID to file name
+  const params = {
+    Bucket: 'svav-wesite-gallery',
+    Key: `${folder}/${uniqueFileName}`,
+    Body: buffer,
+    ContentType: 'image/jpg', // Adjust based on file type if needed
+  };
+
+  return s3.upload(params).promise().then((data) => data.Location); // Return only the Location
+};
+
+// API to handle student registration
+app.post('/adminStudentRegister', upload.single('photo'), async (req, res) => {
+  const { fullname, className, section, rollNo, dateofbirth, fatherName, fatherNo, motherName, motherNo, admissionid, presentAddress } = req.body;
+
+  // Check for missing fields
+  const missingFields = [];
+  if (!fullname) missingFields.push('fullname');
+  if (!className) missingFields.push('className');
+  if (!section) missingFields.push('section');
+  if (!rollNo) missingFields.push('rollNo');
+  if (!dateofbirth) missingFields.push('dateofbirth');
+  if (!fatherName) missingFields.push('fatherName');
+  if (!fatherNo) missingFields.push('fatherNo');
+  if (!motherName) missingFields.push('motherName');
+  if (!motherNo) missingFields.push('motherNo');
+  if (!admissionid) missingFields.push('admissionid');
+  if (!presentAddress) missingFields.push('presentAddress');
+  if (!req.file) missingFields.push('photo');
+
+  if (missingFields.length > 0) {
+    return res.status(400).json({ error: `Missing fields: ${missingFields.join(', ')}` });
+  }
+
+  try {
+    // Upload photo to S3 under smsstudentImages folder
+    const s3FileUrl = await uploadToS3(req.file.buffer, req.file.originalname, 'smsstudentImages');
+    
+    // Log only the Location (S3 file URL)
+    console.log('Uploaded Image URL:', s3FileUrl);
+
+    // Insert student details into MySQL database
+    const query = `
+      INSERT INTO StudentDetails (fullname, className, section, rollNo, dateofbirth, fatherName, fatherNo, motherName, motherNo, admissionid, presentAddress, photo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const values = [fullname, className, section, rollNo, dateofbirth, fatherName, fatherNo, motherName, motherNo, admissionid, presentAddress, s3FileUrl];
+
+    db.query(query, values, (err, result) => {
+      if (err) {
+        console.error('Database insert error:', err);
+        return res.status(500).send('Error registering student');
+      }
+      res.status(200).send('Student registered successfully');
+    });
+  } catch (error) {
+    console.error('Error processing request:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// API to handle teacher registration
+app.post('/AdminTeacherRegister', upload.single('photo'), async (req, res) => {
+  const { fullname, subject, qualification, experience, dateofbirth, mobileNo, employeeid, presentAddress } = req.body;
+  const file = req.file;
+
+  // Check for missing fields
+  const missingFields = [];
+  if (!fullname) missingFields.push('fullname');
+  if (!subject) missingFields.push('subject');
+  if (!qualification) missingFields.push('qualification');
+  if (!experience) missingFields.push('experience');
+  if (!dateofbirth) missingFields.push('dateofbirth');
+  if (!mobileNo) missingFields.push('mobileNo');
+  if (!employeeid) missingFields.push('employeeid');
+  if (!presentAddress) missingFields.push('presentAddress');
+  if (!file) missingFields.push('photo');
+
+  if (missingFields.length > 0) {
+    return res.status(400).json({ error: `Missing fields: ${missingFields.join(', ')}` });
+  }
+
+  try {
+    // Upload photo to S3 under smsTeacherImages folder
+    const s3FileUrl = await uploadToS3(file.buffer, file.originalname, 'smsTeacherImages');
+
+    // Log only the Location (S3 file URL)
+    console.log('Uploaded Image URL:', s3FileUrl);
+
+    // Insert teacher details into MySQL database
+    const query = `
+      INSERT INTO TeacherDetails (fullname, subject, qualification, experience, dateofbirth, mobileNo, employeeid, presentAddress, photo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const values = [fullname, subject, qualification, experience, dateofbirth, mobileNo, employeeid, presentAddress, s3FileUrl];
+
+    db.query(query, values, (err, result) => {
+      if (err) {
+        console.error('Database insert error:', err);
+        return res.status(500).send('Error registering teacher');
+      }
+      res.status(200).send('Teacher registered successfully');
+    });
+  } catch (error) {
+    console.error('Error processing request:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// API to handle fetching teacher details
+app.get('/getTeacherDetails', async (req, res) => {
+  try {
+    // Fetch teacher details from the MySQL database
+    const query = 'SELECT * FROM TeacherDetails';
+    
+    db.query(query, (err, results) => {
+      if (err) {
+        console.error('Database query error:', err);
+        return res.status(500).send('Error fetching teacher details');
+      }
+
+      // Send the fetched data as JSON response
+      res.status(200).json(results);
+    });
+  } catch (error) {
+    console.error('Error processing request:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// API to handle fetching teacher details by email
+app.get('/teacherProfile', (req, res) => {
+  const email = req.query.email;
+
+  // Check if email is provided
+  if (!email) {
+    return res.status(400).send('Email parameter is required');
+  }
+
+  // Fetch teacher details from the MySQL database by email
+  const query = 'SELECT * FROM TeacherDetails WHERE email = ?';
+  
+  db.query(query, [email], (err, results) => {
+    if (err) {
+      console.error('Database query error:', err);
+      return res.status(500).send('Error fetching teacher details');
+    }
+
+    if (results.length === 0) {
+      return res.status(404).send('No teacher found with the provided email');
+    }
+
+    // Send the fetched data as JSON response
+    res.status(200).json(results[0]);
+  });
+});
+
+// GET API to fetch student profile by email
+app.get('/StudentProfile', (req, res) => {
+  const email = req.query.email;
+
+  if (!email) {
+    return res.status(400).send('Email is required');
+  }
+
+  const query = 'SELECT * FROM StudentDetails WHERE email = ?';
+  db.query(query, [email], (err, results) => {
+    if (err) {
+      console.error('Database query error:', err);
+      return res.status(500).send('Error retrieving student profile');
+    }
+
+    if (results.length === 0) {
+      return res.status(404).send('No student found with the provided email');
+    }
+
+    res.status(200).json(results[0]);
+  });
+});
+
+// API route to handle event submission
+app.post('/events', upload.any(), async (req, res) => {
+  const { description } = req.body;
+  const mediaFiles = req.files;
+
+  if (!description || !mediaFiles || mediaFiles.length === 0) {
+    return res.status(400).send('Event description and media files are required');
+  }
+
+  const mediaUrls = [];
+
+  try {
+    // Upload each file to AWS S3
+    for (let i = 0; i < mediaFiles.length; i++) {
+      const file = mediaFiles[i];
+      const uploadParams = {
+        Bucket: 'svav-wesite-gallery', // Your S3 bucket name
+        Key: `smseventimages/${uuidv4()}_${file.originalname}`, // Unique file name
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      };
+
+      const data = await s3.upload(uploadParams).promise();
+      mediaUrls.push(data.Location); // Store the URL of the uploaded file
+    }
+
+    // Insert event details into MySQL database
+    const query = 'INSERT INTO SmsEvents (description, mediaUrls) VALUES (?, ?)';
+    const values = [description, JSON.stringify(mediaUrls)];
+
+    db.query(query, values, (err) => {
+      if (err) {
+        console.error('Database insert error:', err);
+        return res.status(500).send('Error saving event');
+      }
+
+      res.status(200).send('Event successfully submitted');
+    });
+  } catch (error) {
+    console.error('Error uploading files:', error);
+    res.status(500).send('Error uploading files');
+  }
+});
+
+app.get('/events', async (req, res) => {
+  const query = 'SELECT * FROM SmsEvents';
+
+  try {
+    db.query(query, (err, results) => {
+      if (err) {
+        console.error('Database query error:', err);
+        return res.status(500).send('Error fetching events');
+      }
+
+      const events = results.map((event) => ({
+        id: event.id,
+        description: event.description,
+        mediaUrls: JSON.parse(event.mediaUrls), // Parse media URLs back to array
+      }));
+
+      res.status(200).json(events);
+    });
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    res.status(500).send('Error fetching events');
+  }
+});
+
+
+
+
+
+
+
+// Endpoint to get all books
+app.get('/getBooks', (req, res) => {
+  const query = 'SELECT * FROM Books';
+  
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error('Error fetching books:', err);
+      res.status(500).json({ error: 'Error fetching books' });
+    } else {
+      res.status(200).json(results);
+    }
+  });
+});
+
+
+// Endpoint to search for books
+app.get('/searchBook', (req, res) => {
+  const query = req.query.query;
+  
+  // SQL query to search for books by title or ISBN
+  const sqlQuery = `
+    SELECT * FROM Books
+    WHERE bookTitle LIKE ? OR isbn LIKE ?
+  `;
+  
+  db.query(sqlQuery, [`%${query}%`, `%${query}%`], (err, results) => {
+    if (err) {
+      console.error('Error searching for books:', err);
+      res.status(500).json({ error: 'Error searching for books' });
+    } else {
+      res.status(200).json(results);
+    }
+  });
+});
+
+
+
+// Post API to add a book and upload the cover photo to S3
+app.post('/addBook', upload.single('coverPhoto'), (req, res) => {
+  const { bookTitle, author, isbn, description } = req.body;
+  const file = req.file;
+
+  if (!bookTitle || !author || !isbn || !description || !file) {
+    return res.status(400).json({ error: 'All fields and cover photo are required' });
+  }
+
+  // Upload file to AWS S3
+  const fileName = Date.now().toString() + '-' + file.originalname;
+  uploadToS3(file.buffer, fileName, 'smsbook-covers')
+    .then((location) => {
+      // Insert book details into the database after successful upload to S3
+      const query = 'INSERT INTO Books (bookTitle, author, isbn, description, coverPhoto) VALUES (?, ?, ?, ?, ?)';
+      
+      db.query(query, [bookTitle, author, isbn, description, location], (err, result) => {
+        if (err) {
+          console.error('Error adding book to the database:', err);
+          res.status(500).json({ error: 'Error adding book to the database' });
+        } else {
+          res.status(200).json({ message: 'Book added successfully', bookId: result.insertId });
+        }
+      });
+    })
+    .catch((error) => {
+      console.error('Error uploading file to S3:', error);
+      res.status(500).json({ error: 'Error uploading file to S3' });
+    });
+});
+
+
 
 
 //Admin login code 
@@ -117,25 +467,7 @@ app.get('/studentDetails',(req,res)=>{
 });
 
 
-//student registration by admin
-app.post('/adminStudentRegister', (req, res) => {
-  const { fullname, className, section, rollNo, dateofbirth, fatherName, fatherNo, motherName, motherNo, admissionid, presentAddress, photo} = req.body;
 
-  if (!fullname || !className || !section || !rollNo || !dateofbirth || !fatherName || !fatherNo || !motherName || !motherNo || !admissionid || !presentAddress || !photo ) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-    const sql = 'INSERT INTO StudentDetails (fullname, className, section, rollNo, dateofbirth, fatherName, fatherNo, motherName, motherNo, admissionid, presentAddress, photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-    const values = [fullname, className, section, rollNo, dateofbirth, fatherName, fatherNo, motherName, motherNo, admissionid, presentAddress, photo];
-
-    db.query(sql, values, (err, result) => {
-      if (err) {
-        console.error("Error inserting user:", err);
-        return res.status(500).json({ message: "Something unexpected has occurred: " + err });
-      }
-      res.json({ success: "Student added successfully" });
-    });
-});
 
 // Fetch student data by admission ID
 app.get('/studentModify/:admissionid', (req, res) => {
@@ -213,25 +545,7 @@ app.get('/teacherDetails',(req,res) =>{
   });
 });
 
-//Admin teacher registration 
-app.post('/adminTeacherRegister', (req, res) => {
-  const { fullname, subject,qualification,experience, dateofbirth ,mobileNo, employeeid,presentAddress,email,password,confirmPassword ,photo} = req.body;
 
-  if ( !fullname || !subject || !qualification || !experience || !dateofbirth || !mobileNo || !employeeid  || !presentAddress || !photo) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-    const sql = 'INSERT INTO TeacherDetails ( fullname, subject,qualification,experience, dateofbirth ,mobileNo, employeeid,presentAddress, photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
-    const values = [ fullname, subject,qualification,experience, dateofbirth ,mobileNo, employeeid,presentAddress,photo];
-
-    db.query(sql, values, (err, result) => {
-      if (err) {
-        console.error("Error inserting user:", err);
-        return res.status(500).json({ message: "Something unexpected has occurred: " + err });
-      }
-      res.json({ success: "Teacher Details added successfully" });
-    });
-});
 
 
 //api for teacher name for timetable
@@ -407,25 +721,7 @@ app.post('/loginpage', (req, res) => {
   });
 });
 
-// Api for profile details
-app.get('/studentProfile', (req, res) => {
-  const email = req.query.email; // Assume email is passed as a query parameter
-  const sql = 'SELECT * FROM StudentDetails WHERE email = ?';
-  db.query(sql, [email], (err, data) => {
-    if (err) {
-      console.error("Error querying database:", err);
-      return res.json({ Error: "Profile fetch error" });
-    }
-    if (data.length > 0) {
-      const userProfile = data[0];
-      delete userProfile.password; // Remove sensitive data
-      delete userProfile.confirmpassword;
-      return res.json(userProfile);
-    } else {
-      return res.json({ Error: "Profile not found" });
-    }
-  });
-});
+
 
 // api for student leaves 
 app.post('/studentLeave', (req, res) => {
@@ -788,25 +1084,7 @@ app.post('/teacherlogin', (req, res) => {
   });
 });
 
-//Api for teacher details
-app.get('/teacherProfile', (req, res) => {
-  const email = req.query.email; // Assume email is passed as a query parameter
-  const sql = 'SELECT * FROM TeacherDetails WHERE email = ?';
-  db.query(sql, [email], (err, data) => {
-    if (err) {
-      console.error("Error querying database:", err);
-      return res.json({ Error: "Profile fetch error" });
-    }
-    if (data.length > 0) {
-      const userProfile = data[0];
-      delete userProfile.password; // Remove sensitive data
-      delete userProfile.confirmpassword;
-      return res.json(userProfile);
-    } else {
-      return res.json({ Error: "Profile not found" });
-    }
-  });
-});
+
 
 // New API for updating teacher details
 app.post('/teacherUpdate', (req, res) => {
@@ -1273,30 +1551,8 @@ app.put('/teacherComplaints/:id/resolve', (req, res) => {
   });
 });
 
-// API endpoint to add a book
-app.post('/addBook', (req, res) => {
-  const { bookTitle, author, isbn, description, coverPhoto } = req.body;
-  const query = 'INSERT INTO Books (bookTitle, author, isbn, description, coverPhoto) VALUES (?, ?, ?, ?, ?)';
-  db.query(query, [bookTitle, author, isbn, description, coverPhoto], (err, result) => {
-    if (err) {
-      res.status(500).send('Server error');
-    } else {
-      res.status(200).send('Book added successfully');
-    }
-  });
-});
 
-// API endpoint to get all books
-app.get('/getBooks', (req, res) => {
-  const query = 'SELECT * FROM Books';
-  db.query(query, (err, results) => {
-    if (err) {
-      res.status(500).send('Server error');
-    } else {
-      res.status(200).json(results);
-    }
-  });
-});
+
 
 // Endpoint to add questions
 app.post('/questions', (req, res) => {
@@ -1487,19 +1743,7 @@ app.get('/attendance/summary', (req, res) => {
   });
 });
 
-// Endpoint to search for books by title or ISBN
-app.get('/searchBook', (req, res) => {
-  const { query } = req.query;
-  const sql = `SELECT * FROM Books WHERE bookTitle LIKE ? OR isbn LIKE ?`;
-  db.query(sql, [`%${query}%`, `%${query}%`], (err, results) => {
-      if (err) {
-          console.error('Error fetching books:', err);
-          res.status(500).json({ error: 'Failed to fetch books' });
-      } else {
-          res.json(results);
-      }
-  });
-});
+
 
 // Endpoint to update book status
 app.post('/updateBookStatus', (req, res) => {
@@ -1516,92 +1760,6 @@ app.post('/updateBookStatus', (req, res) => {
 });
 
 
-// Storage setup for uploaded media
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-      cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-      cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({ storage: storage });
-
-app.post('/events', upload.array('mediaFiles', 10), (req, res) => {
-  const { description } = req.body;
-
-  // Check the type of req.body.media
-  console.log('Type of req.body.media:', typeof req.body.media);
-
-  let media;
-
-  try {
-      // If req.body.media is a string, parse it; otherwise, use it as is
-      media = typeof req.body.media === 'string' ? JSON.parse(req.body.media) : req.body.media;
-  } catch (err) {
-      return res.status(400).send('Invalid media format.');
-  }
-
-  db.query('INSERT INTO Events (description) VALUES (?)', [description], (err, result) => {
-      if (err) {
-          return res.status(500).send('Failed to create event.');
-      }
-
-      const eventId = result.insertId;
-
-      const mediaInsertions = media.map((item) => {
-          return new Promise((resolve, reject) => {
-              const mediaData = {
-                  event_id: eventId,
-                  media_url: item.uri,
-                  media_type: item.type,
-                  description: item.description,
-              };
-
-              db.query('INSERT INTO Media SET ?', mediaData, (err) => {
-                  if (err) {
-                      reject(err);
-                  } else {
-                      resolve();
-                  }
-              });
-          });
-      });
-
-      Promise.all(mediaInsertions)
-          .then(() => res.send('Event created successfully.'))
-          .catch((err) => {
-              console.error('Failed to insert media:', err);
-              res.status(500).send('Failed to create event with media.');
-          });
-  });
-});
-
-
-
-// Serve static files from the 'uploads' directory
-app.use('/uploads', express.static('uploads'));
-
-
-// Fetch media for all events
-// Fetch media for all events
-app.get('/events/media', (req, res) => {
-  const query = `
-    SELECT m.event_id, m.media_id, m.media_url, m.media_type, m.description
-    FROM Media m
-    JOIN Events e ON m.event_id = e.event_id
-    ORDER BY m.event_id, m.media_id;
-  `;
-  
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error('Error fetching media:', err);
-      return res.status(500).json({ error: 'Failed to fetch media data' });
-    }
-    res.json(results);
-  });
-});
 
 // API to fetch student attendance based on roll number, class, and section
 app.get('/studentAttendance', (req, res) => {
